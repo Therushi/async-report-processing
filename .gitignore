@@ -285,6 +285,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-./PLANNING_INSTRUCTIONS.md
-./LEARNING_PLAN.md
-./IMPLEMENTATION_PLAN.md
+PLANNING_INSTRUCTIONS.md
+LEARNING_PLAN.md
+IMPLEMENTATION_PLAN.md
