@@ -1,4 +1,4 @@
-const { router, Router } = require("express");
+const { Router } = require("express");
 const reportQueue = require("../jobs/report.queue");
 
 const router = Router();
@@ -55,7 +55,7 @@ router.get("/:jobId/status", async (req, res) => {
     });
   }
   return res.status(200).json({
-    success: false,
+    success: true,
     data: {
       jobId,
       status,

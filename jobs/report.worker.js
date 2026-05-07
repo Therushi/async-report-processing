@@ -7,7 +7,7 @@ const reportWorker = createWorker(
     const { reportType, userId } = job.data;
 
     console.log(
-      `[Worker] job ${job.id} | type=${reportType} user=${userId} attempt=${job.attemptMade + 1}`,
+      `[Worker] job ${job.id} | type=${reportType} user=${userId} attempt=${job.attemptsMade + 1}`,
     );
 
     await job.updateProgress(10);
@@ -36,7 +36,7 @@ reportWorker.on("failed", (job, err) => {
 });
 
 reportWorker.on("error", (err) => {
-  console.error(`[worker] Worker error:), ${err}`);
+  console.error(`[worker] Worker error:`, err);
 });
 
 module.exports = reportWorker;

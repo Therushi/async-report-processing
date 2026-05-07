@@ -9,10 +9,10 @@ function simulateHeavyComputation(reportType, userId) {
         generateAt: new Date().toISOString(),
         rowCount: Math.floor(Math.random() * 10000),
         summary: `${reportType} report for user ${userId}`,
-        data: Array.from({ length: 20 }, (_, i) => {
-          row: i + 1;
-          value: Math.random() * 1000;
-        }),
+        data: Array.from({ length: 20 }, (_, i) => ({
+          row: i + 1,
+          value: Math.random() * 1000,
+        })),
       });
     }, 10000);
   });

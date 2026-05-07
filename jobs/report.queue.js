@@ -1,4 +1,3 @@
-const { delay } = require("bullmq");
 const { createQueue } = require("../utils/queue");
 
 const reportQueue = createQueue("reports", {

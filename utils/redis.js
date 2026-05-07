@@ -1,6 +1,6 @@
 const { createClient } = require("redis");
 
-let cient = null;
+let client = null;
 
 async function getRedisClient() {
   if (client && client.isOpen) return client;

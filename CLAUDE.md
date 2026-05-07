@@ -4,121 +4,75 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Async report processing service using Express, BullMQ (job queue), and Redis. The architecture separates HTTP endpoints from background job processing.
+Async report processing service using Express, BullMQ (job queue), and Redis. HTTP endpoints enqueue jobs; a BullMQ worker processes them in the background with caching and retry logic.
 
 ## Stack
 
-- **Runtime**: Node.js (using CommonJS)
-- **HTTP Framework**: Express 5.x
-- **Job Queue**: BullMQ 5.x (leverages Redis for persistence)
-- **Cache/Queue Store**: Redis 5.x
+- **Runtime**: Node.js, CommonJS (`"type": "commonjs"`) — use `require()`/`module.exports`
+- **HTTP**: Express 5.x
+- **Job Queue**: BullMQ 5.x
+- **Cache/Queue Store**: Redis 5.x (two separate clients — see below)
 - **Config**: dotenv
 
-**Note**: Project is configured as CommonJS (`"type": "commonjs"`). Future migration to ESM should align with async-report-processing v2+ if planned.
+## Commands
 
-## Development & Running
-
-### Start the server
 ```bash
-node index.js
+node index.js          # start server (default port 3500)
 ```
-Server runs on `PORT` env var (default 3500).
 
-### Environment Setup
-Create `.env` in the root:
+No test runner, linter, or dev-reload script is configured yet.
+
+## Environment Variables
+
 ```
 PORT=3500
 REDIS_URL=redis://localhost:6379
+CACHE_TTL_SECONDS=3600    # optional, defaults to 3600
 ```
 
-### Dependencies Install
-```bash
-npm install
+## Architecture
+
+### Request flow
+
+```
+POST /reports  →  report.routes.js  →  reportQueue.add()  →  BullMQ (Redis)
+                                                                     ↓
+                                                          report.worker.js
+                                                                     ↓
+                                                          report.service.js
+                                                          (cache check → simulate → cache set)
 ```
 
-### Add new package
-```bash
-npm install <package-name>
+### Two Redis connections
+
+BullMQ and the cache service use **separate** Redis connections:
+
+- `utils/queue.js` — parses `REDIS_URL` into `{ host, port }` for BullMQ's `Queue` and `Worker`
+- `utils/redis.js` — singleton `redis` client (full URL) used by `cache.service.js`
+
+Do not mix them. BullMQ requires the raw host/port form; the `redis` package accepts the full URL.
+
+### Worker lifecycle
+
+The worker (`jobs/report.worker.js`) is loaded inside `startServer()` in `index.js` — it runs in-process, not as a separate process. Concurrency is set to 5. The queue is configured with 3 retry attempts and exponential backoff (1 s base).
+
+### Cache
+
+`services/cache.service.js` stores results in Redis under the key `report:cache:{reportType}:{userId}`. `generateReport()` is cache-aware: cache hit → return immediately with `fromCache: true`; miss → run `simulateHeavyComputation()` (10 s delay), store result, return with `fromCache: false`.
+
+### API shape
+
+```json
+{ "success": true,  "data": {}, "message": "" }
+{ "success": false, "error": "", "code": "" }
 ```
 
-## Project Structure (Planned)
+`POST /reports` returns `202` with `{ jobId, status: "pending" }`.  
+`GET /reports/:jobId/status` polls job state; maps BullMQ states to `pending / processing / completed / failed`.
 
-The project currently has a minimal structure:
-- `index.js` — Entry point, Express server setup
-- More files will be added for job processing logic
+## Known Bugs in Current Code
 
-**Future structure** (when adding job processing):
-```
-/jobs          — BullMQ queue definitions
-  /report.js   — Report processing job queue
-  /handlers/   — Job handlers (processors)
-/routes        — Express route handlers
-/services      — Business logic (report generation, DB queries, etc.)
-/utils         — Helpers (Redis connections, queue setup)
-```
-
-## Architecture Notes
-
-### Job Processing Pattern
-1. **HTTP Endpoint** → Enqueue job to BullMQ
-2. **BullMQ Processor** → Process job asynchronously (in separate process or worker)
-3. **Completion** → Store result in Redis/DB or notify client via webhook/polling
-
-Example (add later):
-```javascript
-// Enqueue report job
-const queue = new Queue('reports', { connection: redis });
-await queue.add('generate', { userId: 123 });
-
-// Process job (worker.js or separate process)
-queue.process('generate', async (job) => {
-  // Generate report
-  return result;
-});
-```
-
-### Redis Connection
-- Single Redis instance (localhost:6379 in dev)
-- BullMQ handles connection pooling automatically
-- For production, use `REDIS_URL` env var
-
-### Error Handling
-- Use try/catch for async operations
-- Log errors with context (job ID, user ID, etc.)
-- Failed jobs should be retried by BullMQ (configurable per queue)
-
-## Testing
-
-Currently no test setup. When adding tests:
-- Use Jest (standard for Node.js)
-- Mock Redis/BullMQ in unit tests
-- Use real Redis in integration tests (optional Docker setup)
-
-## Linting & Formatting
-
-No linting config yet. Consider adding:
-```bash
-npm install --save-dev eslint prettier
-```
-
-## Common Commands (to add as needed)
-
-```bash
-npm test          # Run tests (set up later)
-npm run lint      # Lint code (set up later)
-npm run dev       # Dev mode with auto-reload (install nodemon)
-npm run start     # Production start
-```
-
-## Key Files to Know
-
-- **index.js** — HTTP server and middleware setup
-- **package.json** — Dependencies and scripts
-
-## Notes for Future Contributors
-
-- BullMQ docs: https://docs.bullmq.io/
-- Keep job processors pure (no side effects beyond the job result)
-- Use job.data for input parameters, job.progress() for status updates
-- Avoid long-running synchronous code in job handlers
-- Consider using separate worker processes for heavy workloads (BullMQ supports this via `Worker` class)
+- **`utils/redis.js` line 3**: variable declared as `cient` (typo) but referenced as `client` — causes a ReferenceError on first call.
+- **`routes/report.routes.js` line 1**: destructures `{ router, Router }` from express then immediately shadows it with `const router = Router()` — `router` from the destructure is unused/wrong; remove it from the destructure.
+- **`services/report.service.js` lines 13–14**: object literal inside `Array.from` callback uses statement syntax (`row: i+1; value: ...`) instead of a returned object — all array entries will be `undefined`.
+- **`routes/report.routes.js` line 59**: status endpoint returns `success: false` on a successful status lookup — should be `success: true`.
